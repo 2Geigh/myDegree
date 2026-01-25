@@ -8,15 +8,17 @@ import (
 	"github.com/gocolly/colly"
 )
 
+type CourseCode string
+
 type CourseInfo struct {
 	faculty     string
 	name        string
 	description string
-	prereqs     []string
+	prereqs     []CourseCode
 }
 
 var (
-	Courses map[string]CourseInfo = make(map[string]CourseInfo)
+	Courses map[CourseCode]CourseInfo = make(map[CourseCode]CourseInfo)
 )
 
 func main() {
@@ -26,6 +28,8 @@ func main() {
 	go getAllCourses(&wg)
 
 	wg.Wait()
+
+	fmt.Println(Courses["MAT137Y1"])
 }
 
 func getAllCourses(wg *sync.WaitGroup) {
@@ -46,7 +50,7 @@ func getAllCourses(wg *sync.WaitGroup) {
 			name := strings.TrimSpace(header_components[1])
 			fmt.Printf("%s: %s\n", code, name)
 
-			Courses[code] = CourseInfo{name: name}
+			Courses[CourseCode(code)] = CourseInfo{name: name}
 		}
 
 	})
