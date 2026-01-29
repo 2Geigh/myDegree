@@ -14,9 +14,31 @@ CREATE TABLE IF NOT EXISTS `Prerequisites` (
 );
 
 
+CREATE TABLE IF NOT EXISTS `OnlinePosts` (
+	`id` INTEGER NOT NULL AUTO_INCREMENT UNIQUE,
+	`post_text` TEXT(65535),
+	`subreddit` VARCHAR(255),
+	PRIMARY KEY(`id`)
+);
+
+
+CREATE TABLE IF NOT EXISTS `OnlinePostsCourses` (
+	`id` INTEGER NOT NULL AUTO_INCREMENT UNIQUE,
+	`post_id` INTEGER,
+	`course_id` INTEGER,
+	PRIMARY KEY(`id`)
+);
+
+
 ALTER TABLE `Prerequisites`
 ADD FOREIGN KEY(`course_id`) REFERENCES `Courses`(`id`)
 ON UPDATE NO ACTION ON DELETE NO ACTION;
 ALTER TABLE `Prerequisites`
 ADD FOREIGN KEY(`prereq_course_id`) REFERENCES `Courses`(`id`)
+ON UPDATE NO ACTION ON DELETE NO ACTION;
+ALTER TABLE `OnlinePostsCourses`
+ADD FOREIGN KEY(`course_id`) REFERENCES `Courses`(`id`)
+ON UPDATE NO ACTION ON DELETE NO ACTION;
+ALTER TABLE `OnlinePostsCourses`
+ADD FOREIGN KEY(`post_id`) REFERENCES `OnlinePosts`(`id`)
 ON UPDATE NO ACTION ON DELETE NO ACTION;
