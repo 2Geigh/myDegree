@@ -1,16 +1,25 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
+	"log"
+	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gocolly/colly"
+
+	"github.com/joho/godotenv"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 type CourseCode string
 
-type CourseInfo struct {
+type Course struct {
+	code        string
 	faculty     string
 	name        string
 	description string
@@ -18,18 +27,30 @@ type CourseInfo struct {
 }
 
 var (
-	Courses map[CourseCode]CourseInfo = make(map[CourseCode]CourseInfo)
+	Courses map[CourseCode]Course = make(map[CourseCode]Course)
+	DB      *sql.DB
 )
 
 func main() {
-	wg := sync.WaitGroup{}
+	godotenv.Load("../../.env")
+	err := initializeDB(
+		os.Getenv("MySQL_USERNAME"),
+		os.Getenv("MySQL_PASSWORD"),
+		os.Getenv("MySQL_DB_NAME"),
+	)
+	if err != nil {
+		log.Fatal(fmt.Errorf("couldn't initialize database: %w", err))
+	}
 
+	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go getAllCourses(&wg)
-
 	wg.Wait()
 
-	fmt.Println(Courses["MAT137Y1"])
+	err = addCoursesToDatabase(Courses)
+	if err != nil {
+		log.Fatal(fmt.Errorf("couldn't add courses to database: %w", err))
+	}
 }
 
 func getAllCourses(wg *sync.WaitGroup) {
@@ -50,7 +71,7 @@ func getAllCourses(wg *sync.WaitGroup) {
 			name := strings.TrimSpace(header_components[1])
 			fmt.Printf("%s: %s\n", code, name)
 
-			Courses[CourseCode(code)] = CourseInfo{name: name}
+			Courses[CourseCode(code)] = Course{code: code, name: name}
 		}
 
 	})
@@ -69,4 +90,65 @@ func getAllCourses(wg *sync.WaitGroup) {
 	})
 
 	c.Visit("https://artsci.calendar.utoronto.ca/search-courses")
+
+}
+
+func addCoursesToDatabase(courses map[CourseCode]Course) error {
+	var (
+		totalRowsAffected int = 0
+		err               error
+	)
+
+	tx, err := DB.Begin()
+	if err != nil {
+		return fmt.Errorf("couldn't begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, course := range courses {
+		stmt, err := tx.Prepare(`
+		INSERT INTO Courses (code, name) VALUES (?, ?);
+	`)
+		if err != nil {
+			return fmt.Errorf("couldn't prepare statement: %w", err)
+		}
+
+		result, err := stmt.Exec(course.code, course.name)
+		if err != nil {
+			return fmt.Errorf("couldn't execute statement: %w", err)
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("couldn't get rows affected: %w", err)
+		}
+
+		totalRowsAffected += int(rowsAffected)
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("couldn't commit transaction: %w", err)
+	}
+
+	return err
+}
+
+func initializeDB(user string, password string, dbName string) error {
+	log.Println("Initializing database...")
+	var (
+		err error
+	)
+
+	DB, err = sql.Open("mysql", fmt.Sprintf("%s:%s@/%s", user, password, dbName))
+	if err != nil {
+		return fmt.Errorf("couldn't open database connection: %w", err)
+	}
+
+	DB.SetConnMaxLifetime(time.Minute * 3)
+	DB.SetMaxOpenConns(10)
+	DB.SetMaxIdleConns(10)
+
+	log.Println("Database initialized.")
+	return err
 }
