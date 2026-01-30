@@ -26,6 +26,12 @@ type Course struct {
 	prereqs     []CourseCode
 }
 
+type Program struct {
+	faculty string
+	code    string
+	name    string
+}
+
 var (
 	Courses map[CourseCode]Course = make(map[CourseCode]Course)
 	DB      *sql.DB
@@ -45,6 +51,8 @@ func main() {
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go getAllCourses(&wg)
+	wg.Add(1)
+	go getAllPrograms(&wg)
 	wg.Wait()
 
 	err = addCoursesToDatabase(Courses)
@@ -59,6 +67,12 @@ func getAllCourses(wg *sync.WaitGroup) {
 	c := colly.NewCollector(
 		colly.AllowedDomains("artsci.calendar.utoronto.ca"),
 	)
+
+	c.Limit(&colly.LimitRule{
+		DomainGlob:  "*",
+		Parallelism: 1,
+		Delay:       2 * time.Second,
+	})
 
 	// Get courses from each page
 	c.OnHTML("div.views-row", func(div *colly.HTMLElement) {
@@ -90,7 +104,6 @@ func getAllCourses(wg *sync.WaitGroup) {
 	})
 
 	c.Visit("https://artsci.calendar.utoronto.ca/search-courses")
-
 }
 
 func addCoursesToDatabase(courses map[CourseCode]Course) error {
@@ -150,5 +163,34 @@ func initializeDB(user string, password string, dbName string) error {
 	DB.SetMaxIdleConns(10)
 
 	log.Println("Database initialized.")
+
 	return err
+}
+
+func getAllPrograms(wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	c := colly.NewCollector(
+		colly.AllowedDomains("artsci.calendar.utoronto.ca"),
+	)
+
+	c.Limit(&colly.LimitRule{
+		DomainGlob:  "*",
+		Parallelism: 1,
+		Delay:       2 * time.Second,
+	})
+
+	// Get courses from each page
+	c.OnHTML("article", func(article *colly.HTMLElement) {
+		children := article.DOM.Children()
+		w3_row := children.Find("div.w3-row")
+
+		fmt.Println(w3_row.Text())
+	})
+
+	c.OnRequest(func(r *colly.Request) {
+		fmt.Printf("Visiting %s\n", r.URL.String())
+	})
+
+	c.Visit("https://artsci.calendar.utoronto.ca/listing-program-subject-areas")
 }
