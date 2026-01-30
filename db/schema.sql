@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS `Courses` (
 	`id` INTEGER NOT NULL AUTO_INCREMENT UNIQUE,
-	`code` CHAR(8) NOT NULL,
+	`code` CHAR(8) NOT NULL UNIQUE,
 	`name` VARCHAR(255),
 	PRIMARY KEY(`id`)
 );
@@ -30,6 +30,38 @@ CREATE TABLE IF NOT EXISTS `OnlinePostsCourses` (
 );
 
 
+CREATE TABLE IF NOT EXISTS `Programs` (
+	`id` INTEGER NOT NULL AUTO_INCREMENT UNIQUE,
+	`code` CHAR(9) NOT NULL UNIQUE,
+	`name` VARCHAR(255),
+	PRIMARY KEY(`id`)
+);
+
+
+CREATE TABLE IF NOT EXISTS `ProgramRequirements` (
+	`id` INTEGER NOT NULL AUTO_INCREMENT UNIQUE,
+	`requirement_num` TINYINT,
+	`program_id` INTEGER,
+	`option_group_id` INTEGER,
+	PRIMARY KEY(`id`)
+);
+
+
+CREATE TABLE IF NOT EXISTS `RequirementOptionGroups` (
+	`id` INTEGER NOT NULL AUTO_INCREMENT UNIQUE,
+	`courses_id` INTEGER,
+	PRIMARY KEY(`id`)
+);
+
+
+CREATE TABLE IF NOT EXISTS `OptionGroupCourses` (
+	`id` INTEGER NOT NULL AUTO_INCREMENT UNIQUE,
+	`course_id` INTEGER,
+	`credits_required` FLOAT,
+	PRIMARY KEY(`id`)
+);
+
+
 ALTER TABLE `Prerequisites`
 ADD FOREIGN KEY(`course_id`) REFERENCES `Courses`(`id`)
 ON UPDATE NO ACTION ON DELETE NO ACTION;
@@ -41,4 +73,16 @@ ADD FOREIGN KEY(`course_id`) REFERENCES `Courses`(`id`)
 ON UPDATE NO ACTION ON DELETE NO ACTION;
 ALTER TABLE `OnlinePostsCourses`
 ADD FOREIGN KEY(`post_id`) REFERENCES `OnlinePosts`(`id`)
+ON UPDATE NO ACTION ON DELETE NO ACTION;
+ALTER TABLE `ProgramRequirements`
+ADD FOREIGN KEY(`program_id`) REFERENCES `Programs`(`id`)
+ON UPDATE NO ACTION ON DELETE NO ACTION;
+ALTER TABLE `RequirementOptionGroups`
+ADD FOREIGN KEY(`courses_id`) REFERENCES `OptionGroupCourses`(`id`)
+ON UPDATE NO ACTION ON DELETE NO ACTION;
+ALTER TABLE `OptionGroupCourses`
+ADD FOREIGN KEY(`course_id`) REFERENCES `Courses`(`id`)
+ON UPDATE NO ACTION ON DELETE NO ACTION;
+ALTER TABLE `ProgramRequirements`
+ADD FOREIGN KEY(`option_group_id`) REFERENCES `RequirementOptionGroups`(`id`)
 ON UPDATE NO ACTION ON DELETE NO ACTION;
