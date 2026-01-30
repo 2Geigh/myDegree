@@ -6,10 +6,10 @@ import (
 	"log"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gocolly/colly"
+	"github.com/gocolly/colly/proxy"
 
 	"github.com/joho/godotenv"
 
@@ -26,15 +26,24 @@ type Course struct {
 	prereqs     []CourseCode
 }
 
+type ProgramCode string
+
 type Program struct {
 	faculty string
 	code    string
 	name    string
 }
 
+type ProgramSubjectArea struct {
+	name     string
+	endpoint string
+}
+
 var (
-	Courses map[CourseCode]Course = make(map[CourseCode]Course)
-	DB      *sql.DB
+	Courses             map[CourseCode]Course = make(map[CourseCode]Course)
+	ProgramSubjectAreas []ProgramSubjectArea
+	Programs            map[ProgramCode]Program = make(map[ProgramCode]Program)
+	DB                  *sql.DB
 )
 
 func main() {
@@ -48,12 +57,13 @@ func main() {
 		log.Fatal(fmt.Errorf("couldn't initialize database: %w", err))
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	go getAllCourses(&wg)
-	wg.Add(1)
-	go getAllPrograms(&wg)
-	wg.Wait()
+	// go getAllCourses()
+	getAllProgramSubjectAreas()
+	getAllPrograms()
+
+	// for _, programSubjectArea := range ProgramSubjectAreas {
+	// 	fmt.Println(programSubjectArea)
+	// }
 
 	err = addCoursesToDatabase(Courses)
 	if err != nil {
@@ -61,17 +71,24 @@ func main() {
 	}
 }
 
-func getAllCourses(wg *sync.WaitGroup) {
-	defer wg.Done()
+func getAllCourses() {
 
 	c := colly.NewCollector(
 		colly.AllowedDomains("artsci.calendar.utoronto.ca"),
 	)
 
+	// Rotate two socks5 proxies
+	rp, err := proxy.RoundRobinProxySwitcher("socks5://127.0.0.1:1337", "socks5://127.0.0.1:1338")
+	if err != nil {
+		log.Fatal(err)
+	}
+	c.SetProxyFunc(rp)
+
 	c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
 		Parallelism: 1,
 		Delay:       2 * time.Second,
+		RandomDelay: 5 * time.Second,
 	})
 
 	// Get courses from each page
@@ -167,25 +184,37 @@ func initializeDB(user string, password string, dbName string) error {
 	return err
 }
 
-func getAllPrograms(wg *sync.WaitGroup) {
-	defer wg.Done()
+func getAllProgramSubjectAreas() {
 
 	c := colly.NewCollector(
 		colly.AllowedDomains("artsci.calendar.utoronto.ca"),
 	)
 
+	// Rotate two socks5 proxies
+	// rp, err := proxy.RoundRobinProxySwitcher("socks5://127.0.0.1:1337", "socks5://127.0.0.1:1338")
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// c.SetProxyFunc(rp)
+
 	c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
 		Parallelism: 1,
 		Delay:       2 * time.Second,
+		RandomDelay: 5 * time.Second,
 	})
 
 	// Get courses from each page
-	c.OnHTML("article", func(article *colly.HTMLElement) {
-		children := article.DOM.Children()
-		w3_row := children.Find("div.w3-row")
+	c.OnHTML("td", func(td *colly.HTMLElement) {
+		a := td.DOM.Find("a")
+		programSubjectAreaName := a.Text()
+		target, targetExists := a.Attr("href")
 
-		fmt.Println(w3_row.Text())
+		if targetExists && strings.Contains(target, "/section/") {
+			programSubjectArea := ProgramSubjectArea{name: programSubjectAreaName, endpoint: target}
+			ProgramSubjectAreas = append(ProgramSubjectAreas, programSubjectArea)
+		}
+
 	})
 
 	c.OnRequest(func(r *colly.Request) {
@@ -193,4 +222,71 @@ func getAllPrograms(wg *sync.WaitGroup) {
 	})
 
 	c.Visit("https://artsci.calendar.utoronto.ca/listing-program-subject-areas")
+}
+
+func getAllPrograms() {
+
+	fmt.Println("Getting all programs...")
+
+	for _, programSubjectArea := range ProgramSubjectAreas {
+
+		c := colly.NewCollector(
+			colly.AllowedDomains("artsci.calendar.utoronto.ca"),
+		)
+
+		// Rotate two socks5 proxies
+		// rp, err := proxy.RoundRobinProxySwitcher("socks5://127.0.0.1:1337", "socks5://127.0.0.1:1338")
+		// if err != nil {
+		// 	log.Fatal(err)
+		// }
+		// c.SetProxyFunc(rp)
+
+		c.Limit(&colly.LimitRule{
+			DomainGlob:  "*",
+			Parallelism: 1,
+			Delay:       2 * time.Second,
+			RandomDelay: 5 * time.Second,
+		})
+
+		c.OnHTML("h3", func(h3 *colly.HTMLElement) {
+			aria_label_div := h3.DOM.Find("div[aria-label]")
+
+			isValidProgram := false
+			programStringsLowercase := []string{"specialist", "major", "minor", "certificate", "focus", "science program", "arts program"}
+			for _, programStringLowercase := range programStringsLowercase {
+				parenthesizedProgramStringLowercase := fmt.Sprintf("(%s)", programStringLowercase)
+				if strings.Contains(strings.ToLower(aria_label_div.Text()), parenthesizedProgramStringLowercase) {
+					isValidProgram = true
+					break
+				}
+			}
+
+			if isValidProgram {
+				string_components := strings.Split(aria_label_div.Text(), " - ")
+				if len(string_components) > 1 {
+					code := strings.TrimSpace(string_components[1])
+					name := strings.TrimSpace(string_components[0])
+
+					programCodePrefixes := []string{"ASMIN", "ASMAJ", "ASSPE", "ASCER", "ASFOC"}
+					for _, prefix := range programCodePrefixes {
+						if code[0:len(prefix)] == prefix {
+							fmt.Printf("%s: %s\n", code, name)
+							Programs[ProgramCode(code)] = Program{code: code, name: name}
+						}
+					}
+
+				}
+			}
+
+		})
+
+		fmt.Println("Visiting ", fmt.Sprintf("https://artsci.calendar.utoronto.ca%s\n", programSubjectArea.endpoint))
+		err := c.Visit(fmt.Sprintf("https://artsci.calendar.utoronto.ca%s", programSubjectArea.endpoint))
+		if err != nil {
+			fmt.Println(err)
+			break
+		}
+	}
+
+	fmt.Println("Got all programs.")
 }
